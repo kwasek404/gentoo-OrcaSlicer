@@ -1,0 +1,151 @@
+name: Update Ebuild
+
+on:
+  workflow_dispatch:
+    inputs:
+      new_version:
+        description: 'New OrcaSlicer version (without v prefix)'
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      new_version:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine versions
+        id: versions
+        run: |
+          new="${{ inputs.new_version }}"
+          old=$(ls media-gfx/orcaslicer/orcaslicer-*.ebuild 2>/dev/null \
+            | grep -v 9999 \
+            | sed 's|.*/orcaslicer-||;s|\.ebuild$||' \
+            | sort -V \
+            | tail -1)
+          echo "new=${new}" >> "$GITHUB_OUTPUT"
+          echo "old=${old}" >> "$GITHUB_OUTPUT"
+          echo "Updating ${old} -> ${new}"
+
+      - name: Create version bump branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b bump/orcaslicer-${{ steps.versions.outputs.new }}
+
+      - name: Copy and update ebuild
+        env:
+          OLD_VER: ${{ steps.versions.outputs.old }}
+          NEW_VER: ${{ steps.versions.outputs.new }}
+        run: |
+          old_ebuild="media-gfx/orcaslicer/orcaslicer-${OLD_VER}.ebuild"
+          new_ebuild="media-gfx/orcaslicer/orcaslicer-${NEW_VER}.ebuild"
+
+          if [[ ! -f "$old_ebuild" ]]; then
+            echo "::error::Old ebuild not found: ${old_ebuild}"
+            exit 1
+          fi
+
+          cp "$old_ebuild" "$new_ebuild"
+
+          # Update version-specific patch references if any
+          if grep -q "${OLD_VER}" "$new_ebuild"; then
+            sed -i "s/${OLD_VER}/${NEW_VER}/g" "$new_ebuild"
+          fi
+
+          echo "Created ${new_ebuild}"
+
+      - name: Update patches for new version
+        env:
+          OLD_VER: ${{ steps.versions.outputs.old }}
+          NEW_VER: ${{ steps.versions.outputs.new }}
+        run: |
+          patch_dir="media-gfx/orcaslicer/files"
+          if [[ -d "$patch_dir" ]]; then
+            for patch in "${patch_dir}"/orcaslicer-${OLD_VER}-*.patch; do
+              if [[ -f "$patch" ]]; then
+                new_patch="${patch/${OLD_VER}/${NEW_VER}}"
+                cp "$patch" "$new_patch"
+                echo "Copied patch: $(basename "$new_patch")"
+              fi
+            done
+          fi
+
+      - name: Verify source tarball exists
+        env:
+          NEW_VER: ${{ steps.versions.outputs.new }}
+        run: |
+          url="https://github.com/SoftFever/OrcaSlicer/archive/refs/tags/v${NEW_VER}.tar.gz"
+          status=$(curl -sI -o /dev/null -w '%{http_code}' "$url")
+          if [[ "$status" != "200" && "$status" != "302" ]]; then
+            echo "::error::Source tarball not available (HTTP ${status}): ${url}"
+            exit 1
+          fi
+          echo "Source tarball verified: ${url}"
+
+      - name: Commit and push
+        env:
+          NEW_VER: ${{ steps.versions.outputs.new }}
+        run: |
+          git add -A media-gfx/orcaslicer/
+          git commit -m "media-gfx/orcaslicer: bump to ${NEW_VER}"
+          git push -u origin "bump/orcaslicer-${NEW_VER}"
+
+      - name: Create pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_VER: ${{ steps.versions.outputs.new }}
+          OLD_VER: ${{ steps.versions.outputs.old }}
+        run: |
+          gh pr create \
+            --title "media-gfx/orcaslicer: bump ${OLD_VER} -> ${NEW_VER}" \
+            --body "$(cat <<EOF
+          ## Summary
+
+          Automated version bump for OrcaSlicer ${NEW_VER}.
+
+          - Upstream release: https://github.com/SoftFever/OrcaSlicer/releases/tag/v${NEW_VER}
+          - Previous version: ${OLD_VER}
+
+          ## Checklist
+
+          - [ ] Ebuild compiles in Docker test build
+          - [ ] Patches still apply cleanly
+          - [ ] Dependencies unchanged (or updated if needed)
+
+          > This PR was created automatically by the check-release workflow.
+          > Manual review is recommended before merging.
+          EOF
+          )" \
+            --base main
+
+      - name: Create issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_VER: ${{ steps.versions.outputs.new }}
+        run: |
+          gh issue create \
+            --title "Failed to bump orcaslicer to ${NEW_VER}" \
+            --body "$(cat <<EOF
+          The automated ebuild update workflow failed for OrcaSlicer ${NEW_VER}.
+
+          **Release:** https://github.com/SoftFever/OrcaSlicer/releases/tag/v${NEW_VER}
+          **Workflow run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          Manual intervention required.
+          EOF
+          )" \
+            --label "bug,automation"

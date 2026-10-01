@@ -1,0 +1,68 @@
+name: Check OrcaSlicer Release
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-release:
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.check.outputs.new_version }}
+      has_update: ${{ steps.check.outputs.has_update }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get current ebuild version
+        id: current
+        run: |
+          version=$(ls media-gfx/orcaslicer/orcaslicer-*.ebuild 2>/dev/null \
+            | grep -v 9999 \
+            | sed 's|.*/orcaslicer-||;s|\.ebuild$||' \
+            | sort -V \
+            | tail -1)
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Current overlay version: ${version}"
+
+      - name: Check latest OrcaSlicer release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest=$(gh api repos/SoftFever/OrcaSlicer/releases/latest --jq '.tag_name' | sed 's/^v//')
+
+          if [[ -z "$latest" ]]; then
+            echo "Failed to fetch latest release"
+            exit 1
+          fi
+
+          echo "Latest upstream version: ${latest}"
+          echo "Current overlay version: ${{ steps.current.outputs.version }}"
+
+          # Skip pre-releases (rc, beta, alpha, dev)
+          if [[ "$latest" =~ (rc|beta|alpha|dev) ]]; then
+            echo "Skipping pre-release: ${latest}"
+            echo "has_update=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$latest" != "${{ steps.current.outputs.version }}" ]]; then
+            echo "New version available: ${latest}"
+            echo "new_version=${latest}" >> "$GITHUB_OUTPUT"
+            echo "has_update=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Already up to date"
+            echo "has_update=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  update-ebuild:
+    needs: check-release
+    if: needs.check-release.outputs.has_update == 'true'
+    uses: ./.github/workflows/update-ebuild.yml
+    with:
+      new_version: ${{ needs.check-release.outputs.new_version }}
+    secrets: inherit

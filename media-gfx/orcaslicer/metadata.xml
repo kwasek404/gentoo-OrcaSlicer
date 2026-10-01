@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pkgmetadata SYSTEM "https://www.gentoo.org/dtd/metadata.dtd">
+<pkgmetadata>
+	<maintainer type="project">
+		<email>kwasek404@gmail.com</email>
+		<name>gentoo-OrcaSlicer overlay</name>
+	</maintainer>
+	<upstream>
+		<remote-id type="github">SoftFever/OrcaSlicer</remote-id>
+		<bugs-to>https://github.com/SoftFever/OrcaSlicer/issues</bugs-to>
+	</upstream>
+</pkgmetadata>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pkgmetadata SYSTEM "https://www.gentoo.org/dtd/metadata.dtd">
+<pkgmetadata>
+	<maintainer type="project">
+		<email>kwasek404@gmail.com</email>
+		<name>gentoo-OrcaSlicer overlay</name>
+	</maintainer>
+	<upstream>
+		<remote-id type="github">SoftFever/Orca-deps-wxWidgets</remote-id>
+	</upstream>
+	<use>
+		<flag name="gstreamer">Enable GStreamer media playback support</flag>
+		<flag name="opengl">Enable OpenGL canvas with EGL support</flag>
+		<flag name="wayland">Enable Wayland support</flag>
+		<flag name="webkit">Enable WebView via webkit-gtk</flag>
+	</use>
+</pkgmetadata>
